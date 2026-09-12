@@ -37,7 +37,7 @@
       overflow: hidden;
     }
 
-    /* Header & Settings Bar */
+    /* Header Bar */
     header {
       background-color: var(--bg-panel);
       padding: 12px 20px;
@@ -171,7 +171,6 @@
       align-items: center;
     }
 
-    /* Video Player & Chat Area */
     .player-container {
       position: relative;
       width: 100%;
@@ -185,7 +184,7 @@
       border: none;
     }
 
-    /* Custom Chat Container */
+    /* Custom Chat Panel */
     .chat-panel-container {
       display: flex;
       flex-direction: column;
@@ -235,7 +234,7 @@
       flex: 1;
     }
 
-    /* Tools & Notes Area */
+    /* Quick Tools */
     .panel-content {
       padding: 12px;
       display: flex;
@@ -283,6 +282,7 @@
     }
   </style>
 
+  <!-- tmi.js CDN for IRC Chat integration -->
   <script src="https://cdn.jsdelivr.net/npm/tmi.js@1.8.5/dist/tmi.min.js"></script>
 </head>
 <body>
@@ -303,7 +303,7 @@
   </header>
 
   <main class="dashboard-grid">
-    <!-- Stream Feed Panel -->
+    <!-- Stream Panel -->
     <section class="panel">
       <div class="panel-header">
         <span>Live Stream Feed</span>
@@ -320,10 +320,10 @@
       </div>
       <div class="chat-panel-container">
         <div id="auth-prompt-banner" class="auth-banner">
-          Sign in with Twitch to send messages directly from this panel.
+          Sign in to send chat messages directly from this panel.
         </div>
         <div class="chat-messages" id="chat-messages">
-          <div class="chat-msg" style="color:var(--text-muted)">Connecting to chat stream...</div>
+          <div class="chat-msg" style="color:var(--text-muted)">Connecting to chat...</div>
         </div>
         <div class="chat-input-area">
           <input type="text" id="chat-input" placeholder="Send a message..." disabled onkeydown="if(event.key==='Enter') sendChatMessage()" />
@@ -332,7 +332,7 @@
       </div>
     </section>
 
-    <!-- Toolkit Panel -->
+    <!-- Tools Panel -->
     <section class="panel right-panel">
       <div class="panel-header">Quick Tools</div>
       <div class="panel-content">
@@ -359,7 +359,7 @@
     var userOAuthToken = null;
 
     window.addEventListener('DOMContentLoaded', function() {
-      // 1. Process OAuth token if returning from Twitch login redirect
+      // Parse return token from hash
       parseOAuthHash();
 
       var savedChannel = localStorage.getItem('twitch_dashboard_channel');
@@ -387,7 +387,11 @@
       fetchStreamStatus();
     });
 
-    // Extract access_token from the URL hash after Twitch OAuth redirect
+    function getRedirectUri() {
+      // Get base URL without hash or query params
+      return window.location.origin + window.location.pathname;
+    }
+
     function parseOAuthHash() {
       var hash = window.location.hash.substring(1);
       var params = new URLSearchParams(hash);
@@ -396,7 +400,7 @@
       if (token) {
         userOAuthToken = token;
         localStorage.setItem('twitch_user_token', token);
-        // Clear token from URL address bar for security
+        // Strip token parameters out of URL bar for security
         window.history.replaceState({}, document.title, window.location.pathname);
       } else {
         userOAuthToken = localStorage.getItem('twitch_user_token');
@@ -407,11 +411,178 @@
       }
     }
 
-    // Handles triggering Twitch Auth or signing out
     function handleAuth() {
+      if (window.location.protocol === 'file:') {
+        alert("Twitch OAuth requires running over HTTP/HTTPS (e.g. GitHub Pages or VS Code Live Server). It does not support direct file:// execution.");
+        return;
+      }
+
       if (userOAuthToken) {
-        // Sign Out action
+        // Sign Out
         localStorage.removeItem('twitch_user_token');
+        userOAuthToken = null;
+        currentUser = null;
+
+        document.getElementById('auth-btn').innerHTML = "&#128273; Sign In with Twitch";
+        document.getElementById('chat-user-badge').innerText = "Guest Mode";
+        document.getElementById('auth-prompt-banner').style.display = "block";
+
+        var chatInput = document.getElementById('chat-input');
+        var sendBtn = document.getElementById('send-btn');
+        if (chatInput) chatInput.disabled = true;
+        if (sendBtn) sendBtn.disabled = true;
+
+        initChatConnection(currentChannel);
+      } else {
+        // Sign In Redirect
+        var redirectUri = getRedirectUri();
+        var scopes = "chat:read chat:edit";
+        var authUrl = "https://id.twitch.tv/oauth2/authorize" +
+          "?client_id=" + encodeURIComponent(TWITCH_CLIENT_ID) +
+          "&redirect_uri=" + encodeURIComponent(redirectUri) +
+          "&response_type=token" +
+          "&scope=" + encodeURIComponent(scopes);
+
+        window.location.href = authUrl;
+      }
+    }
+
+    function validateToken(token) {
+      fetch('https://id.twitch.tv/oauth2/validate', {
+        headers: { 'Authorization': 'OAuth ' + token }
+      })
+      .then(function(res) {
+        if (res.ok) return res.json();
+        throw new Error('Token expired or invalid');
+      })
+      .then(function(data) {
+        currentUser = data.login;
+        document.getElementById('auth-btn').innerText = "Sign Out (" + currentUser + ")";
+        document.getElementById('chat-user-badge').innerText = "@" + currentUser;
+
+        var banner = document.getElementById('auth-prompt-banner');
+        if (banner) banner.style.display = "none";
+
+        var chatInput = document.getElementById('chat-input');
+        var sendBtn = document.getElementById('send-btn');
+        if (chatInput) chatInput.disabled = false;
+        if (sendBtn) sendBtn.disabled = false;
+
+        initChatConnection(currentChannel);
+      })
+      .catch(function(e) {
+        console.warn("Token validation failed, clearing stored token:", e);
+        localStorage.removeItem('twitch_user_token');
+        userOAuthToken = null;
+        currentUser = null;
+      });
+    }
+
+    function updateChannel() {
+      var input = document.getElementById('channel-input').value.trim();
+      if (input) {
+        currentChannel = input.toLowerCase();
+        localStorage.setItem('twitch_dashboard_channel', currentChannel);
+        loadStreamEmbed(currentChannel);
+        initChatConnection(currentChannel);
+        fetchStreamStatus();
+      }
+    }
+
+    function loadStreamEmbed(channel) {
+      var host = window.location.hostname || "localhost";
+      var playerContainer = document.getElementById('player-container');
+      playerContainer.innerHTML = '<iframe src="https://player.twitch.tv/?channel=' + channel + '&parent=' + host + '&autoplay=false" allowfullscreen></iframe>';
+    }
+
+    function initChatConnection(channel) {
+      if (chatClient) {
+        try { chatClient.disconnect(); } catch(e){}
+      }
+
+      var chatBox = document.getElementById('chat-messages');
+      chatBox.innerHTML = '<div class="chat-msg" style="color:var(--text-muted)">Connecting to #' + channel + '...</div>';
+
+      var options = {
+        channels: [channel]
+      };
+
+      if (currentUser && userOAuthToken) {
+        options.identity = {
+          username: currentUser,
+          password: 'oauth:' + userOAuthToken
+        };
+      }
+
+      chatClient = new tmi.Client(options);
+
+      chatClient.on('message', function(target, tags, message, self) {
+        appendChatMessage(tags['display-name'] || tags.username, message, tags.color);
+      });
+
+      chatClient.on('connected', function() {
+        chatBox.innerHTML += '<div class="chat-msg" style="color:var(--accent-green)">Connected to #' + channel + '</div>';
+      });
+
+      chatClient.connect().catch(function(err) {
+        console.error("Chat connection error:", err);
+      });
+    }
+
+    function appendChatMessage(username, message, color) {
+      var chatBox = document.getElementById('chat-messages');
+      var msgDiv = document.createElement('div');
+      msgDiv.className = 'chat-msg';
+      var userColor = color || '#9146ff';
+
+      msgDiv.innerHTML = '<span class="chat-user" style="color:' + userColor + '">' + username + ':</span> ' + escapeHTML(message);
+      chatBox.appendChild(msgDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function sendChatMessage() {
+      var input = document.getElementById('chat-input');
+      var msg = input.value.trim();
+      if (msg && chatClient) {
+        chatClient.say(currentChannel, msg);
+        appendChatMessage(currentUser, msg, '#00e676');
+        input.value = '';
+      }
+    }
+
+    function escapeHTML(str) {
+      return str.replace(/[&<>'"]/g, function(tag) {
+        var chars = { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' };
+        return chars[tag] || tag;
+      });
+    }
+
+    function fetchStreamStatus() {
+      Promise.all([
+        fetch('https://decapi.me/twitch/uptime/' + currentChannel).then(function(r) { return r.text(); }),
+        fetch('https://decapi.me/twitch/game/' + currentChannel).then(function(r) { return r.text(); })
+      ])
+      .then(function(results) {
+        var uptimeText = results[0];
+        var gameText = results[1];
+
+        if (uptimeText.indexOf("offline") !== -1 || uptimeText.indexOf("not found") !== -1) {
+          document.getElementById('status-dot').className = 'status-dot';
+          document.getElementById('status-text').innerText = 'OFFLINE';
+          document.getElementById('stream-category').innerText = 'Category: ' + (gameText || 'Offline');
+        } else {
+          document.getElementById('status-dot').className = 'status-dot live';
+          document.getElementById('status-text').innerText = 'LIVE';
+          document.getElementById('stream-category').innerText = 'Playing: ' + gameText;
+        }
+      })
+      .catch(function(err) {
+        console.log("Status lookup failed", err);
+      });
+    }
+  </script>
+</body>
+</html>        localStorage.removeItem('twitch_user_token');
         userOAuthToken = null;
         currentUser = null;
 
