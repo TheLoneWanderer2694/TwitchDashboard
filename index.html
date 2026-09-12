@@ -7,7 +7,669 @@
 
   <!-- tmi.js CDN with failover -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tmi.js/1.8.5/tmi.min.js"></script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pro Streamer Dashboard</title>
 
+  <style>
+    :root {
+      --bg-dark: #0b0a0d;
+      --bg-panel: #14131a;
+      --bg-card: #1c1b24;
+      --accent-purple: #9146ff;
+      --accent-purple-hover: #772ce8;
+      --accent-green: #00e676;
+      --accent-red: #ff1744;
+      --status-live: #ff1744;
+      --status-offline: #666666;
+      --text-main: #efeff1;
+      --text-muted: #adadb8;
+      --border-color: #272533;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Header Bar */
+    header {
+      background-color: var(--bg-panel);
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .logo-area {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-area h1 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--accent-purple);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+      background: var(--bg-card);
+      padding: 4px 10px;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--status-offline);
+    }
+
+    .status-dot.live {
+      background-color: var(--status-live);
+      box-shadow: 0 0 8px var(--status-live);
+    }
+
+    .header-controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .channel-input-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    input[type="text"] {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      outline: none;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--accent-purple);
+    }
+
+    button {
+      background-color: var(--accent-purple);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: background 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    button:hover {
+      background-color: var(--accent-purple-hover);
+    }
+
+    button.btn-login {
+      background-color: var(--accent-purple);
+      font-weight: 700;
+      box-shadow: 0 2px 8px rgba(145, 70, 255, 0.4);
+    }
+
+    button.btn-outline {
+      background: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+    }
+
+    button.btn-outline:hover {
+      border-color: var(--accent-purple);
+      background: var(--bg-card);
+    }
+
+    /* Layout */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 340px 300px;
+      grid-template-rows: 1fr;
+      gap: 12px;
+      padding: 12px;
+      flex: 1;
+      height: calc(100vh - 60px);
+    }
+
+    @media (max-width: 1200px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr 320px;
+      }
+      .right-panel {
+        display: none;
+      }
+    }
+
+    .panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 10px 14px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-color);
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .player-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background: #000;
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
+    /* Chat Styling */
+    .chat-panel-container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      position: relative;
+    }
+
+    .auth-banner {
+      background: var(--bg-card);
+      padding: 8px 10px;
+      text-align: center;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      font-size: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      background: var(--bg-dark);
+    }
+
+    .chat-msg {
+      word-break: break-word;
+      line-height: 1.4;
+    }
+
+    .chat-user {
+      font-weight: bold;
+      color: var(--accent-purple);
+      margin-right: 4px;
+    }
+
+    .chat-input-area {
+      padding: 10px;
+      background: var(--bg-card);
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      gap: 6px;
+    }
+
+    .chat-input-area input {
+      flex: 1;
+    }
+
+    .iframe-chat {
+      width: 100%;
+      height: 100%;
+      display: none;
+    }
+
+    /* Quick Tools */
+    .panel-content {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+      height: 100%;
+    }
+
+    textarea {
+      width: 100%;
+      height: 120px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 10px;
+      border-radius: 6px;
+      resize: vertical;
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    textarea:focus {
+      border-color: var(--accent-purple);
+    }
+
+    .event-log {
+      font-family: monospace;
+      font-size: 0.8rem;
+      background: var(--bg-dark);
+      border: 1px solid var(--border-color);
+      padding: 8px;
+      border-radius: 6px;
+      flex: 1;
+      overflow-y: auto;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo-area">
+      <h1>Stream Control</h1>
+      <div class="status-badge">
+        <span id="status-dot" class="status-dot"></span>
+        <span id="status-text">OFFLINE</span>
+      </div>
+    </div>
+
+    <div class="header-controls">
+      <div class="channel-input-group">
+        <input type="text" id="channel-input" placeholder="Channel Name" value="thelonewanderer2694">
+        <button class="btn-outline" onclick="updateChannel()">Load Channel</button>
+      </div>
+
+      <!-- TWITCH LOGIN BUTTON -->
+      <button id="auth-btn" class="btn-login" onclick="handleAuth()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M11.571 4.714h1.715v5.143H11.57V4.714zm4.715 0H18v5.143h-1.714V4.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0H6zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714v9.429z"/>
+        </svg>
+        <span>Log In with Twitch</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="dashboard-grid">
+    <!-- Stream Embed -->
+    <section class="panel">
+      <div class="panel-header">
+        <span>Live Stream Feed</span>
+        <span id="stream-category" style="color: var(--text-muted); font-size: 0.8rem;">Category: Unset</span>
+      </div>
+      <div class="player-container" id="player-container"></div>
+    </section>
+
+    <!-- Chat Panel -->
+    <section class="panel">
+      <div class="panel-header">
+        <span>Live Interactive Chat</span>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <button class="btn-outline" style="padding: 2px 6px; font-size: 0.7rem;" onclick="toggleChatMode()">Embed Fallback</button>
+          <span id="chat-user-badge" style="color: var(--accent-green); font-size: 0.75rem;">Guest Mode</span>
+        </div>
+      </div>
+      <div class="chat-panel-container">
+        <div id="auth-prompt-banner" class="auth-banner">
+          Log in with Twitch to send chat messages.
+        </div>
+        
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-msg" style="color:var(--text-muted)">Initializing WebSocket...</div>
+        </div>
+        
+        <div class="chat-input-area" id="custom-chat-input">
+          <input type="text" id="chat-input" placeholder="Send a message..." disabled onkeydown="if(event.key==='Enter') sendChatMessage()" />
+          <button id="send-btn" onclick="sendChatMessage()" disabled>Send</button>
+        </div>
+
+        <iframe id="twitch-chat-embed" class="iframe-chat"></iframe>
+      </div>
+    </section>
+
+    <!-- Quick Tools Panel -->
+    <section class="panel right-panel">
+      <div class="panel-header">Quick Tools</div>
+      <div class="panel-content">
+        <div>
+          <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px; font-weight: bold;">STREAM DRAFT NOTES</label>
+          <textarea id="notes" placeholder="Quick stream notes..."></textarea>
+        </div>
+        <div style="display: flex; flex-direction: column; flex: 1;">
+          <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px; font-weight: bold;">EVENT LOG</label>
+          <div class="event-log" id="event-log">
+            <div class="event-entry"><span class="event-time">[System]</span> Dashboard Initialized.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    var TWITCH_CLIENT_ID = "p3zby6kk79avmxdcy2gm5pz31btcz1";
+
+    var currentChannel = "thelonewanderer2694";
+    var directSocket = null;
+    var currentUser = null;
+    var userOAuthToken = null;
+    var isIframeMode = false;
+
+    window.addEventListener('DOMContentLoaded', function() {
+      parseOAuthHash();
+
+      var savedChannel = localStorage.getItem('twitch_dashboard_channel');
+      if (savedChannel) {
+        currentChannel = savedChannel.toLowerCase().trim();
+        var channelInput = document.getElementById('channel-input');
+        if (channelInput) channelInput.value = currentChannel;
+      }
+
+      var savedNotes = localStorage.getItem('twitch_dashboard_notes');
+      if (savedNotes) {
+        var notesElem = document.getElementById('notes');
+        if (notesElem) notesElem.value = savedNotes;
+      }
+
+      var notesElem = document.getElementById('notes');
+      if (notesElem) {
+        notesElem.addEventListener('input', function(e) {
+          localStorage.setItem('twitch_dashboard_notes', e.target.value);
+        });
+      }
+
+      loadStreamEmbed(currentChannel);
+      initDirectWebSocket(currentChannel);
+      fetchStreamStatus();
+    });
+
+    function getRedirectUri() {
+      return window.location.origin + window.location.pathname;
+    }
+
+    function parseOAuthHash() {
+      var hash = window.location.hash.substring(1);
+      var params = new URLSearchParams(hash);
+      var token = params.get('access_token');
+
+      if (token) {
+        userOAuthToken = token;
+        localStorage.setItem('twitch_user_token', token);
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else {
+        userOAuthToken = localStorage.getItem('twitch_user_token');
+      }
+
+      if (userOAuthToken) {
+        validateToken(userOAuthToken);
+      }
+    }
+
+    function handleAuth() {
+      if (window.location.protocol === 'file:') {
+        alert("Twitch OAuth requires hosting over HTTP/HTTPS (e.g., Live Server or GitHub Pages). It cannot run directly from a local file:// URL.");
+        return;
+      }
+
+      if (userOAuthToken) {
+        localStorage.removeItem('twitch_user_token');
+        userOAuthToken = null;
+        currentUser = null;
+
+        var authBtn = document.getElementById('auth-btn');
+        authBtn.className = "btn-login";
+        authBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M11.571 4.714h1.715v5.143H11.57V4.714zm4.715 0H18v5.143h-1.714V4.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0H6zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714v9.429z"/></svg><span>Log In with Twitch</span>';
+
+        document.getElementById('chat-user-badge').innerText = "Guest Mode";
+        document.getElementById('auth-prompt-banner').style.display = "block";
+
+        document.getElementById('chat-input').disabled = true;
+        document.getElementById('send-btn').disabled = true;
+
+        initDirectWebSocket(currentChannel);
+      } else {
+        var redirectUri = getRedirectUri();
+        var scopes = "chat:read chat:edit";
+        var authUrl = "https://id.twitch.tv/oauth2/authorize" +
+          "?client_id=" + encodeURIComponent(TWITCH_CLIENT_ID) +
+          "&redirect_uri=" + encodeURIComponent(redirectUri) +
+          "&response_type=token" +
+          "&scope=" + encodeURIComponent(scopes);
+
+        window.location.href = authUrl;
+      }
+    }
+
+    function validateToken(token) {
+      fetch('https://id.twitch.tv/oauth2/validate', {
+        headers: { 'Authorization': 'OAuth ' + token }
+      })
+      .then(function(res) {
+        if (res.ok) return res.json();
+        throw new Error('Token expired');
+      })
+      .then(function(data) {
+        currentUser = data.login;
+        var authBtn = document.getElementById('auth-btn');
+        authBtn.className = "btn-outline";
+        authBtn.innerText = "Sign Out (" + currentUser + ")";
+        
+        document.getElementById('chat-user-badge').innerText = "@" + currentUser;
+        document.getElementById('auth-prompt-banner').style.display = "none";
+
+        document.getElementById('chat-input').disabled = false;
+        document.getElementById('send-btn').disabled = false;
+
+        initDirectWebSocket(currentChannel);
+      })
+      .catch(function(e) {
+        localStorage.removeItem('twitch_user_token');
+        userOAuthToken = null;
+        currentUser = null;
+      });
+    }
+
+    function updateChannel() {
+      var input = document.getElementById('channel-input').value.trim();
+      if (input) {
+        currentChannel = input.toLowerCase();
+        localStorage.setItem('twitch_dashboard_channel', currentChannel);
+        loadStreamEmbed(currentChannel);
+        initDirectWebSocket(currentChannel);
+        fetchStreamStatus();
+      }
+    }
+
+    function loadStreamEmbed(channel) {
+      var host = window.location.hostname || "localhost";
+      var playerContainer = document.getElementById('player-container');
+      playerContainer.innerHTML = '<iframe src="https://player.twitch.tv/?channel=' + channel + '&parent=' + host + '&autoplay=false" allowfullscreen></iframe>';
+      
+      var chatEmbed = document.getElementById('twitch-chat-embed');
+      chatEmbed.src = 'https://www.twitch.tv/embed/' + channel + '/chat?parent=' + host + '&darkpopout';
+    }
+
+    /* DIRECT NATIVE WEBSOCKET CHAT ENGINE */
+    function initDirectWebSocket(channel) {
+      if (isIframeMode) return;
+
+      if (directSocket) {
+        try { directSocket.close(); } catch(e){}
+      }
+
+      var chatBox = document.getElementById('chat-messages');
+      chatBox.innerHTML = '<div class="chat-msg" style="color:var(--text-muted)">Connecting to IRC WebSocket...</div>';
+
+      directSocket = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+
+      directSocket.onopen = function() {
+        var nick = currentUser || 'justinfan' + Math.floor(10000 + Math.random() * 90000);
+        var pass = userOAuthToken ? 'oauth:' + userOAuthToken : 'SCHMOOPIIE';
+
+        // Twitch Capabilities Request
+        directSocket.send('CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership');
+        directSocket.send('PASS ' + pass);
+        directSocket.send('NICK ' + nick);
+        directSocket.send('JOIN #' + channel.toLowerCase());
+        
+        chatBox.innerHTML = '<div class="chat-msg" style="color:var(--accent-green)">Connected to #' + channel + '</div>';
+      };
+
+      directSocket.onmessage = function(event) {
+        var rawData = event.data;
+        
+        // Respond to Twitch server keep-alive ping
+        if (rawData.startsWith('PING')) {
+          directSocket.send('PONG :tmi.twitch.tv');
+          return;
+        }
+
+        // Process message payload
+        if (rawData.includes('PRIVMSG')) {
+          var displayName = "User";
+          var userColor = "#9146ff";
+
+          var nameMatch = rawData.match(/display-name=([^;]+)/);
+          if (nameMatch && nameMatch[1]) {
+            displayName = nameMatch[1];
+          } else {
+            var rawUser = rawData.match(/^:(\w+)!/);
+            if (rawUser) displayName = rawUser[1];
+          }
+
+          var colorMatch = rawData.match(/color=([^;]+)/);
+          if (colorMatch && colorMatch[1]) {
+            userColor = colorMatch[1];
+          }
+
+          var msgMatch = rawData.match(/PRIVMSG #[^ ]+ :(.*)$/);
+          if (msgMatch && msgMatch[1]) {
+            appendChatMessage(displayName, msgMatch[1].trim(), userColor);
+          }
+        }
+      };
+
+      directSocket.onerror = function(err) {
+        console.error("WebSocket Error:", err);
+        chatBox.innerHTML += '<div class="chat-msg" style="color:var(--accent-red)">WebSocket blocked. Click "Embed Fallback" above to switch modes.</div>';
+      };
+    }
+
+    function appendChatMessage(username, message, color) {
+      var chatBox = document.getElementById('chat-messages');
+      var msgDiv = document.createElement('div');
+      msgDiv.className = 'chat-msg';
+      var userColor = color || '#9146ff';
+
+      msgDiv.innerHTML = '<span class="chat-user" style="color:' + userColor + '">' + username + ':</span> ' + escapeHTML(message);
+      chatBox.appendChild(msgDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function sendChatMessage() {
+      var input = document.getElementById('chat-input');
+      var msg = input.value.trim();
+      if (!msg) return;
+
+      if (directSocket && directSocket.readyState === WebSocket.OPEN) {
+        directSocket.send('PRIVMSG #' + currentChannel + ' :' + msg);
+        appendChatMessage(currentUser || 'You', msg, '#00e676');
+        input.value = '';
+      }
+    }
+
+    function toggleChatMode() {
+      isIframeMode = !isIframeMode;
+      var chatMessages = document.getElementById('chat-messages');
+      var chatInput = document.getElementById('custom-chat-input');
+      var chatEmbed = document.getElementById('twitch-chat-embed');
+
+      if (isIframeMode) {
+        chatMessages.style.display = 'none';
+        chatInput.style.display = 'none';
+        chatEmbed.style.display = 'block';
+      } else {
+        chatMessages.style.display = 'flex';
+        chatInput.style.display = 'flex';
+        chatEmbed.style.display = 'none';
+        initDirectWebSocket(currentChannel);
+      }
+    }
+
+    function escapeHTML(str) {
+      return str.replace(/[&<>'"]/g, function(tag) {
+        var chars = { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' };
+        return chars[tag] || tag;
+      });
+    }
+
+    function fetchStreamStatus() {
+      Promise.all([
+        fetch('https://decapi.me/twitch/uptime/' + currentChannel).then(function(r) { return r.text(); }),
+        fetch('https://decapi.me/twitch/game/' + currentChannel).then(function(r) { return r.text(); })
+      ])
+      .then(function(results) {
+        var uptimeText = results[0];
+        var gameText = results[1];
+
+        if (uptimeText.indexOf("offline") !== -1 || uptimeText.indexOf("not found") !== -1) {
+          document.getElementById('status-dot').className = 'status-dot';
+          document.getElementById('status-text').innerText = 'OFFLINE';
+          document.getElementById('stream-category').innerText = 'Category: ' + (gameText || 'Offline');
+        } else {
+          document.getElementById('status-dot').className = 'status-dot live';
+          document.getElementById('status-text').innerText = 'LIVE';
+          document.getElementById('stream-category').innerText = 'Playing: ' + gameText;
+        }
+      })
+      .catch(function(err) {
+        console.log("Status lookup failed", err);
+      });
+    }
+  </script>
+</body>
+</html>
   <style>
     :root {
       --bg-dark: #0b0a0d;
