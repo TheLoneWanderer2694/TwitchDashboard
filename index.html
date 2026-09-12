@@ -3,38 +3,370 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Twitch Streamer Dashboard</title>
+  <title>Pro Streamer Dashboard with Live Chat</title>
   <style>
     :root {
-      --bg-dark: #0f0e13;
-      --bg-panel: #18171f;
-      --bg-card: #1f1e29;
+      --bg-dark: #0b0a0d;
+      --bg-panel: #14131a;
+      --bg-card: #1c1b24;
       --accent-purple: #9146ff;
       --accent-purple-hover: #772ce8;
+      --accent-green: #00e676;
+      --accent-red: #ff1744;
       --text-main: #efeff1;
       --text-muted: #adadb8;
-      --border-color: #2a2937;
-      --status-live: #e53935;
-      --status-offline: #757575;
+      --border-color: #272533;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: var(--bg-dark); color: var(--text-main); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-    body {
-      background-color: var(--bg-dark);
-      color: var(--text-main);
+    header {
+      background-color: var(--bg-panel);
+      padding: 10px 16px;
       display: flex;
-      flex-direction: column;
-      height: 100vh;
-      overflow: hidden;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
     }
 
-    /* Header & Settings Bar */
+    .logo-area { display: flex; align-items: center; gap: 12px; }
+    .logo-area h1 { font-size: 1.1rem; font-weight: 700; color: var(--accent-purple); text-transform: uppercase; }
+
+    .meta-bar { display: flex; align-items: center; gap: 12px; font-size: 0.85rem; }
+    .meta-item { display: flex; align-items: center; gap: 6px; background: var(--bg-card); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-color); }
+
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background-color: #666; }
+    .status-dot.live { background-color: var(--accent-red); box-shadow: 0 0 8px var(--accent-red); }
+
+    .channel-input-group { display: flex; gap: 8px; align-items: center; }
+    input[type="text"] {
+      background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); padding: 6px 10px; border-radius: 6px; font-size: 0.85rem; outline: none;
+    }
+    input[type="text"]:focus { border-color: var(--accent-purple); }
+
+    button {
+      background-color: var(--accent-purple); color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: background 0.2s;
+    }
+    button:hover { background-color: var(--accent-purple-hover); }
+    button.btn-outline { background: transparent; border: 1px solid var(--border-color); color: var(--text-main); }
+    button.btn-outline:hover { border-color: var(--accent-purple); background: var(--bg-card); }
+
+    /* Dashboard Layout */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 360px 300px;
+      gap: 10px;
+      padding: 10px;
+      flex: 1;
+      height: calc(100vh - 55px);
+    }
+
+    .panel { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
+    .panel-header { padding: 10px 14px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); font-size: 0.85rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+
+    .player-container { width: 100%; height: 100%; background: #000; }
+    iframe { width: 100%; height: 100%; border: none; }
+
+    /* Custom Chat Panel UI */
+    .chat-panel-container { display: flex; flex-direction: column; height: 100%; }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 10px; font-size: 0.85rem; display: flex; flex-direction: column; gap: 6px; background: var(--bg-dark); }
+    .chat-msg { word-break: break-word; line-height: 1.4; }
+    .chat-user { font-weight: bold; color: var(--accent-purple); margin-right: 4px; }
+    .chat-input-area { padding: 10px; background: var(--bg-card); border-top: 1px solid var(--border-color); display: flex; gap: 6px; }
+    .chat-input-area input { flex: 1; }
+
+    .auth-banner {
+      background: var(--bg-card);
+      padding: 12px;
+      text-align: center;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 0.8rem;
+    }
+
+    .panel-content { padding: 10px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; height: 100%; }
+    textarea { width: 100%; height: 80px; background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-main); padding: 8px; border-radius: 6px; font-size: 0.8rem; resize: none; outline: none; }
+    
+    .event-feed { font-size: 0.8rem; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 6px; flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .feed-item { padding: 6px 8px; background: var(--bg-panel); border-radius: 4px; border-left: 3px solid var(--accent-purple); font-size: 0.75rem; }
+  </style>
+  <!-- Load TMI.js for Twitch IRC Chat Connection -->
+  <script src="https://cdn.jsdelivr.net/npm/tmi.js@1.8.5/dist/tmi.min.js"></script>
+</head>
+<body>
+
+  <header>
+    <div class="logo-area">
+      <h1>Stream Control</h1>
+      <div class="meta-bar">
+        <div class="meta-item">
+          <span id="status-dot" class="status-dot"></span>
+          <span id="status-text">OFFLINE</span>
+        </div>
+        <div class="meta-item">👁️ <span id="viewer-val">--</span></div>
+      </div>
+    </div>
+    
+    <div class="channel-input-group">
+      <input type="text" id="channel-input" placeholder="Twitch Username" value="thelonewanderer2694" />
+      <button onclick="updateChannel()">Load Stream</button>
+      <button id="auth-btn" class="btn-outline" onclick="handleAuth()">🔑 Sign In with Twitch</button>
+    </div>
+  </header>
+
+  <main class="dashboard-grid">
+    <!-- Stream Preview -->
+    <section class="panel">
+      <div class="panel-header">
+        <span>Live Stream Feed</span>
+        <span id="stream-category" style="color: var(--text-muted); font-size: 0.8rem;">Category: Unset</span>
+      </div>
+      <div class="player-container" id="player-container"></div>
+    </section>
+
+    <!-- Interactive Live Chat -->
+    <section class="panel">
+      <div class="panel-header">
+        <span>Live Interactive Chat</span>
+        <span id="chat-user-badge" style="color: var(--accent-green); font-size: 0.75rem;">Guest Mode</span>
+      </div>
+      <div class="chat-panel-container">
+        <div id="auth-prompt-banner" class="auth-banner">
+          Sign in to send chat messages directly from this panel.
+        </div>
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-msg" style="color:var(--text-muted)">Connecting to chat stream...</div>
+        </div>
+        <div class="chat-input-area">
+          <input type="text" id="chat-input" placeholder="Send a message..." disabled onkeydown="if(event.key==='Enter') sendChatMessage()" />
+          <button id="send-btn" onclick="sendChatMessage()" disabled>Send</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Streamer Utilities -->
+    <section class="panel">
+      <div class="panel-header">
+        <span>Toolkit & Notes</span>
+      </div>
+      <div class="panel-content">
+        <div>
+          <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px; font-weight: bold;">STREAM DRAFT NOTES</label>
+          <textarea id="stream-notes" placeholder="Draft stream titles, game categories, or game objectives..."></textarea>
+        </div>
+
+        <div style="display: flex; flex-direction: column; flex: 1;">
+          <label style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px; font-weight: bold;">ACTIVITY FEED</label>
+          <div class="event-feed" id="event-feed">
+            <div class="feed-item">Dashboard Initialized.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // Twitch Client ID
+    const TWITCH_CLIENT_ID = "p3zby6kk79avmxdcy2gm5pz31btcz1";
+    
+    let currentChannel = "thelonewanderer2694";
+    let chatClient = null;
+    let currentUser = null;
+    let userOAuthToken = null;
+
+    window.addEventListener('DOMContentLoaded', () => {
+      // Parse OAuth Token from URL hash if returning from Twitch Sign-In
+      parseOAuthHash();
+
+      const savedChannel = localStorage.getItem('twitch_dashboard_channel');
+      if (savedChannel) {
+        currentChannel = savedChannel;
+        document.getElementById('channel-input').value = currentChannel;
+      }
+
+      const savedNotes = localStorage.getItem('twitch_dashboard_notes');
+      if (savedNotes) {
+        document.getElementById('stream-notes').value = savedNotes;
+      }
+
+      document.getElementById('stream-notes').addEventListener('input', (e) => {
+        localStorage.setItem('twitch_dashboard_notes', e.target.value);
+      });
+
+      loadStreamEmbed(currentChannel);
+      initChatConnection(currentChannel);
+      fetchStreamStatus();
+    });
+
+    function parseOAuthHash() {
+      const hash = window.location.hash.substring(1);
+      const params = new URLSearchParams(hash);
+      const token = params.get('access_token');
+
+      if (token) {
+        userOAuthToken = token;
+        localStorage.setItem('twitch_user_token', token);
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else {
+        userOAuthToken = localStorage.getItem('twitch_user_token');
+      }
+
+      if (userOAuthToken) {
+        validateToken(userOAuthToken);
+      }
+    }
+
+    function handleAuth() {
+      if (userOAuthToken) {
+        // Sign Out
+        localStorage.removeItem('twitch_user_token');
+        userOAuthToken = null;
+        currentUser = null;
+        document.getElementById('auth-btn').innerText = "🔑 Sign In with Twitch";
+        document.getElementById('chat-user-badge').innerText = "Guest Mode";
+        document.getElementById('auth-prompt-banner').style.display = "block";
+        document.getElementById('chat-input').disabled = true;
+        document.getElementById('send-btn').disabled = true;
+        initChatConnection(currentChannel);
+      } else {
+        // Sign In via Twitch OAuth Implicit Grant
+        const redirectUri = window.location.origin + window.location.pathname;
+        const scopes = encodeURIComponent("chat:read chat:edit");
+        const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${TWITCH_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scopes}`;
+        window.location.href = authUrl;
+      }
+    }
+
+    async function validateToken(token) {
+      try {
+        const res = await fetch('https://id.twitch.tv/oauth2/validate', {
+          headers: { 'Authorization': `OAuth ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          currentUser = data.login;
+          document.getElementById('auth-btn').innerText = `👤 Sign Out (${currentUser})`;
+          document.getElementById('chat-user-badge').innerText = `@${currentUser}`;
+          document.getElementById('auth-prompt-banner').style.display = "none";
+          document.getElementById('chat-input').disabled = false;
+          document.getElementById('send-btn').disabled = false;
+          
+          // Reconnect chat as authenticated user
+          initChatConnection(currentChannel);
+        } else {
+          localStorage.removeItem('twitch_user_token');
+        }
+      } catch (e) {
+        console.error("Token validation error:", e);
+      }
+    }
+
+    function updateChannel() {
+      const inputVal = document.getElementById('channel-input').value.trim();
+      if (inputVal) {
+        currentChannel = inputVal.toLowerCase();
+        localStorage.setItem('twitch_dashboard_channel', currentChannel);
+        loadStreamEmbed(currentChannel);
+        initChatConnection(currentChannel);
+        fetchStreamStatus();
+      }
+    }
+
+    function loadStreamEmbed(channel) {
+      const currentHost = window.location.hostname || "localhost";
+      document.getElementById('player-container').innerHTML = `
+        <iframe src="https://player.twitch.tv/?channel=${channel}&parent=${currentHost}&autoplay=false" allowfullscreen></iframe>`;
+    }
+
+    /* TMI.js WebSocket Chat Engine */
+    function initChatConnection(channel) {
+      if (chatClient) {
+        chatClient.disconnect();
+      }
+
+      const chatBox = document.getElementById('chat-messages');
+      chatBox.innerHTML = `<div class="chat-msg" style="color:var(--text-muted)">Connecting to #${channel}...</div>`;
+
+      const options = {
+        channels: [channel]
+      };
+
+      if (currentUser && userOAuthToken) {
+        options.identity = {
+          username: currentUser,
+          password: `oauth:${userOAuthToken}`
+        };
+      }
+
+      chatClient = new tmi.Client(options);
+
+      chatClient.on('message', (target, tags, message, self) => {
+        appendChatMessage(tags['display-name'] || tags.username, message, tags.color);
+      });
+
+      chatClient.on('connected', () => {
+        chatBox.innerHTML += `<div class="chat-msg" style="color:var(--accent-green)">Connected to #${channel}</div>`;
+      });
+
+      chatClient.connect().catch(console.error);
+    }
+
+    function appendChatMessage(username, message, color) {
+      const chatBox = document.getElementById('chat-messages');
+      const msgDiv = document.createElement('div');
+      msgDiv.className = 'chat-msg';
+      const userColor = color || '#9146ff';
+      
+      msgDiv.innerHTML = `<span class="chat-user" style="color:${userColor}">${username}:</span> ${escapeHTML(message)}`;
+      chatBox.appendChild(msgDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function sendChatMessage() {
+      const input = document.getElementById('chat-input');
+      const msg = input.value.trim();
+      if (msg && chatClient) {
+        chatClient.say(currentChannel, msg);
+        appendChatMessage(currentUser, msg, '#00e676');
+        input.value = '';
+      }
+    }
+
+    function escapeHTML(str) {
+      return str.replace(/[&<>'"]/g, 
+        tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+      );
+    }
+
+    async function fetchStreamStatus() {
+      try {
+        const uptimeRes = await fetch(`https://decapi.me/twitch/uptime/${currentChannel}`);
+        const uptimeText = await uptimeRes.text();
+
+        const viewerRes = await fetch(`https://decapi.me/twitch/viewers/${currentChannel}`);
+        const viewerText = await viewerRes.text();
+
+        const gameRes = await fetch(`https://decapi.me/twitch/game/${currentChannel}`);
+        const gameText = await gameRes.text();
+
+        if (uptimeText.includes("offline") || uptimeText.includes("not found")) {
+          document.getElementById('status-dot').className = 'status-dot';
+          document.getElementById('status-text').innerText = 'OFFLINE';
+          document.getElementById('viewer-val').innerText = '--';
+          document.getElementById('stream-category').innerText = `Category: ${gameText || 'Offline'}`;
+        } else {
+          document.getElementById('status-dot').className = 'status-dot live';
+          document.getElementById('status-text').innerText = 'LIVE';
+          document.getElementById('viewer-val').innerText = viewerText;
+          document.getElementById('stream-category').innerText = `Playing: ${gameText}`;
+        }
+      } catch (err) {
+        console.log("Status update failed", err);
+      }
+    }
+  </script>
+</body>
+</html>    /* Header & Settings Bar */
     header {
       background-color: var(--bg-panel);
       padding: 12px 20px;
