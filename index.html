@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pro Streamer Dashboard</title>
 
+  <!-- Primary & Backup CDNs for tmi.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tmi.js/1.8.5/tmi.min.js"></script>
+  <script>
+    if (typeof tmi === 'undefined') {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/tmi.js@1.8.5/dist/tmi.min.js"><\/script>');
+    }
+  </script>
+
   <style>
     :root {
       --bg-dark: #0b0a0d;
@@ -37,7 +45,7 @@
       overflow: hidden;
     }
 
-    /* Header Bar with Header Login Button */
+    /* Header Bar */
     header {
       background-color: var(--bg-panel);
       padding: 12px 20px;
@@ -208,11 +216,12 @@
       display: flex;
       flex-direction: column;
       height: 100%;
+      position: relative;
     }
 
     .auth-banner {
       background: var(--bg-card);
-      padding: 10px;
+      padding: 8px 10px;
       text-align: center;
       border-bottom: 1px solid var(--border-color);
       font-size: 0.8rem;
@@ -251,6 +260,12 @@
 
     .chat-input-area input {
       flex: 1;
+    }
+
+    .iframe-chat {
+      width: 100%;
+      height: 100%;
+      display: none;
     }
 
     /* Quick Tools */
@@ -300,8 +315,6 @@
       color: var(--accent-purple);
     }
   </style>
-
-  <script src="https://cdn.jsdelivr.net/npm/tmi.js@1.8.5/dist/tmi.min.js"></script>
 </head>
 <body>
 
@@ -320,7 +333,7 @@
         <button class="btn-outline" onclick="updateChannel()">Load Channel</button>
       </div>
 
-      <!-- MAIN TWITCH LOGIN BUTTON -->
+      <!-- LOGIN BUTTON -->
       <button id="auth-btn" class="btn-login" onclick="handleAuth()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
           <path d="M11.571 4.714h1.715v5.143H11.57V4.714zm4.715 0H18v5.143h-1.714V4.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0H6zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714v9.429z"/>
@@ -344,19 +357,27 @@
     <section class="panel">
       <div class="panel-header">
         <span>Live Interactive Chat</span>
-        <span id="chat-user-badge" style="color: var(--accent-green); font-size: 0.75rem;">Guest Mode</span>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="btn-outline" style="padding: 2px 6px; font-size: 0.7rem;" onclick="toggleChatMode()">Switch Mode</button>
+          <span id="chat-user-badge" style="color: var(--accent-green); font-size: 0.75rem;">Guest Mode</span>
+        </div>
       </div>
       <div class="chat-panel-container">
         <div id="auth-prompt-banner" class="auth-banner">
-          Log in with your Twitch account using the button above to send chat messages.
+          Log in with Twitch to send messages via custom chat.
         </div>
+        
+        <!-- Custom TMI.js Chat View -->
         <div class="chat-messages" id="chat-messages">
-          <div class="chat-msg" style="color:var(--text-muted)">Connecting to chat...</div>
+          <div class="chat-msg" style="color:var(--text-muted)">Initializing chat connection...</div>
         </div>
-        <div class="chat-input-area">
+        <div class="chat-input-area" id="custom-chat-input">
           <input type="text" id="chat-input" placeholder="Send a message..." disabled onkeydown="if(event.key==='Enter') sendChatMessage()" />
           <button id="send-btn" onclick="sendChatMessage()" disabled>Send</button>
         </div>
+
+        <!-- Fallback Native Embed Iframe -->
+        <iframe id="twitch-chat-embed" class="iframe-chat"></iframe>
       </div>
     </section>
 
@@ -383,15 +404,17 @@
 
     var currentChannel = "thelonewanderer2694";
     var chatClient = null;
+    var directSocket = null;
     var currentUser = null;
     var userOAuthToken = null;
+    var isIframeMode = false;
 
     window.addEventListener('DOMContentLoaded', function() {
       parseOAuthHash();
 
       var savedChannel = localStorage.getItem('twitch_dashboard_channel');
       if (savedChannel) {
-        currentChannel = savedChannel;
+        currentChannel = savedChannel.toLowerCase().trim();
         var channelInput = document.getElementById('channel-input');
         if (channelInput) channelInput.value = currentChannel;
       }
@@ -443,7 +466,6 @@
       }
 
       if (userOAuthToken) {
-        // Sign Out Action
         localStorage.removeItem('twitch_user_token');
         userOAuthToken = null;
         currentUser = null;
@@ -462,7 +484,6 @@
 
         initChatConnection(currentChannel);
       } else {
-        // Sign In Action
         var redirectUri = getRedirectUri();
         var scopes = "chat:read chat:edit";
         var authUrl = "https://id.twitch.tv/oauth2/authorize" +
@@ -481,7 +502,7 @@
       })
       .then(function(res) {
         if (res.ok) return res.json();
-        throw new Error('Token expired or invalid');
+        throw new Error('Token expired');
       })
       .then(function(data) {
         currentUser = data.login;
@@ -502,7 +523,6 @@
         initChatConnection(currentChannel);
       })
       .catch(function(e) {
-        console.warn("Token validation failed, resetting:", e);
         localStorage.removeItem('twitch_user_token');
         userOAuthToken = null;
         currentUser = null;
@@ -524,40 +544,94 @@
       var host = window.location.hostname || "localhost";
       var playerContainer = document.getElementById('player-container');
       playerContainer.innerHTML = '<iframe src="https://player.twitch.tv/?channel=' + channel + '&parent=' + host + '&autoplay=false" allowfullscreen></iframe>';
+      
+      var chatEmbed = document.getElementById('twitch-chat-embed');
+      chatEmbed.src = 'https://www.twitch.tv/embed/' + channel + '/chat?parent=' + host + '&darkpopout';
     }
 
+    /* Robust Dual Chat Engine (TMI.js + Native WebSocket Fallback) */
     function initChatConnection(channel) {
+      if (isIframeMode) return;
+
       if (chatClient) {
         try { chatClient.disconnect(); } catch(e){}
+      }
+      if (directSocket) {
+        try { directSocket.close(); } catch(e){}
       }
 
       var chatBox = document.getElementById('chat-messages');
       chatBox.innerHTML = '<div class="chat-msg" style="color:var(--text-muted)">Connecting to #' + channel + '...</div>';
 
-      var options = {
-        channels: [channel]
+      // Check if tmi library loaded
+      if (typeof tmi !== 'undefined') {
+        var options = {
+          options: { debug: false },
+          connection: { secure: true, reconnect: true },
+          channels: [channel]
+        };
+
+        if (currentUser && userOAuthToken) {
+          options.identity = {
+            username: currentUser,
+            password: 'oauth:' + userOAuthToken
+          };
+        }
+
+        chatClient = new tmi.Client(options);
+
+        chatClient.on('message', function(target, tags, message, self) {
+          appendChatMessage(tags['display-name'] || tags.username, message, tags.color);
+        });
+
+        chatClient.on('connected', function() {
+          chatBox.innerHTML += '<div class="chat-msg" style="color:var(--accent-green)">Connected to #' + channel + '</div>';
+        });
+
+        chatClient.connect().catch(function(err) {
+          console.warn("TMI connection failed, launching native WebSocket fallback:", err);
+          initDirectWebSocket(channel);
+        });
+      } else {
+        initDirectWebSocket(channel);
+      }
+    }
+
+    // Native Browser WebSocket Connection (Ignores library blocks)
+    function initDirectWebSocket(channel) {
+      var chatBox = document.getElementById('chat-messages');
+      directSocket = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+
+      directSocket.onopen = function() {
+        var nick = currentUser || 'justinfan' + Math.floor(10000 + Math.random() * 90000);
+        var pass = userOAuthToken ? 'oauth:' + userOAuthToken : 'SCHMOOPIIE';
+
+        directSocket.send('PASS ' + pass);
+        directSocket.send('NICK ' + nick);
+        directSocket.send('JOIN #' + channel);
+        
+        chatBox.innerHTML += '<div class="chat-msg" style="color:var(--accent-green)">Connected to #' + channel + ' (Native WS)</div>';
       };
 
-      if (currentUser && userOAuthToken) {
-        options.identity = {
-          username: currentUser,
-          password: 'oauth:' + userOAuthToken
-        };
-      }
+      directSocket.onmessage = function(event) {
+        var data = event.data;
+        if (data.startsWith('PING')) {
+          directSocket.send('PONG :tmi.twitch.tv');
+          return;
+        }
 
-      chatClient = new tmi.Client(options);
+        if (data.includes('PRIVMSG')) {
+          var userMatch = data.match(/^:(\w+)!/);
+          var msgMatch = data.match(/PRIVMSG #[^ ]+ :(.*)$/);
+          if (userMatch && msgMatch) {
+            appendChatMessage(userMatch[1], msgMatch[1], '#9146ff');
+          }
+        }
+      };
 
-      chatClient.on('message', function(target, tags, message, self) {
-        appendChatMessage(tags['display-name'] || tags.username, message, tags.color);
-      });
-
-      chatClient.on('connected', function() {
-        chatBox.innerHTML += '<div class="chat-msg" style="color:var(--accent-green)">Connected to #' + channel + '</div>';
-      });
-
-      chatClient.connect().catch(function(err) {
-        console.error("Chat connection failed:", err);
-      });
+      directSocket.onerror = function() {
+        chatBox.innerHTML += '<div class="chat-msg" style="color:var(--accent-red)">Chat failed to connect. Click "Switch Mode" to load Native Embed.</div>';
+      };
     }
 
     function appendChatMessage(username, message, color) {
@@ -574,10 +648,34 @@
     function sendChatMessage() {
       var input = document.getElementById('chat-input');
       var msg = input.value.trim();
-      if (msg && chatClient) {
+      if (!msg) return;
+
+      if (chatClient && chatClient.readyState() === "OPEN") {
         chatClient.say(currentChannel, msg);
         appendChatMessage(currentUser, msg, '#00e676');
         input.value = '';
+      } else if (directSocket && directSocket.readyState === WebSocket.OPEN) {
+        directSocket.send('PRIVMSG #' + currentChannel + ' :' + msg);
+        appendChatMessage(currentUser, msg, '#00e676');
+        input.value = '';
+      }
+    }
+
+    function toggleChatMode() {
+      isIframeMode = !isIframeMode;
+      var chatMessages = document.getElementById('chat-messages');
+      var chatInput = document.getElementById('custom-chat-input');
+      var chatEmbed = document.getElementById('twitch-chat-embed');
+
+      if (isIframeMode) {
+        chatMessages.style.display = 'none';
+        chatInput.style.display = 'none';
+        chatEmbed.style.display = 'block';
+      } else {
+        chatMessages.style.display = 'flex';
+        chatInput.style.display = 'flex';
+        chatEmbed.style.display = 'none';
+        initChatConnection(currentChannel);
       }
     }
 
